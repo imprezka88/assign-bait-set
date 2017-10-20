@@ -1,0 +1,30 @@
+group 'org.mkscc.lims'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'java'
+apply plugin: 'application'
+apply plugin: 'maven'
+
+mainClassName = "org.mskcc.lims.AssignBaitSet"
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    compile group: 'com.velox.internalproducts', name: 'veloxapi', version: '9.5.1-b633'
+    compile group: 'com.velox.internalproducts', name: 'sapioutils', version: '7.1.1-LIMS9.5.0'
+
+    compile group: 'org.mskcc.common', name:'common-domain', version: '1.2-SNAPSHOT'
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+}
+
+run {
+    if (System.getProperty('DEBUG', 'false') == 'true') {
+        jvmArgs '-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5006'
+    }
+}
