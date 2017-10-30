@@ -6,28 +6,36 @@ import com.velox.sapioutils.client.standalone.VeloxConnection;
 import com.velox.sapioutils.client.standalone.VeloxStandalone;
 import com.velox.sapioutils.client.standalone.VeloxStandaloneException;
 import com.velox.sapioutils.client.standalone.VeloxTask;
+import org.apache.log4j.Logger;
 import org.mskcc.util.VeloxConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class AssignBaitSet {
-    private static final String limsConnectionFilePath = "/Connection-dev.txt";
-    private static final Logger LOGGER = LoggerFactory.getLogger(AssignBaitSet.class);
+    //    private static final String limsConnectionFilePath = "/Connection-dev.txt";
+    private static final String limsConnectionFilePath = "/Connection.txt";
+    private static final Logger LOGGER = Logger.getLogger(AssignBaitSet.class);
 
     private static final Map<String, String> oldToNewBaitSet = new HashMap<>();
 
-    static  {
+    static {
         oldToNewBaitSet.put("51MB_Human", "Agilent_v4_51MB_Human");
         oldToNewBaitSet.put("51MB_Mouse", "Agilent_v4_51MB_Mouse");
     }
 
     private User user;
     private DataRecordManager dataRecordManager;
+
+    private Path kapa1Backup = Paths.get("kapa1_bait_set_backup.txt");
+    private Path kapa2Backup = Paths.get("kapa2_bait_set_backup.txt");
 
     public static void main(String[] args) {
         AssignBaitSet assignBaitSet = new AssignBaitSet();
@@ -56,65 +64,43 @@ public class AssignBaitSet {
     }
 
     private void assign() throws Exception {
+        Files.deleteIfExists(kapa1Backup);
+        Files.createFile(kapa1Backup);
+        Files.deleteIfExists(kapa2Backup);
+        Files.createFile(kapa2Backup);
+
         List<DataRecord> kapas1 = dataRecordManager.queryDataRecords(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_1, null, user);
         List<DataRecord> kapas2 = dataRecordManager.queryDataRecords(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_2, null, user);
 
-        assignToKapa(kapas1);
-        assignToKapa(kapas2);
+        LOGGER.info(String.format("Assigning bait set for: %s", VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_1));
+        assignToKapa(kapas1, kapa1Backup);
+
+        LOGGER.info(String.format("Assigning bait set for: %s", VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_2));
+        assignToKapa(kapas2, kapa2Backup);
     }
 
-    private void assignToKapa(List<DataRecord> kapas) throws RemoteException, NotFound, IoError, InvalidValue {
+    private void assignToKapa(List<DataRecord> kapas, Path kapaBackup) throws RemoteException, NotFound, IoError, InvalidValue {
         for (DataRecord kapa : kapas) {
             try {
-                DataRecord newestRequest = getNewestRequest(kapa);
+                String baitSet = kapa.getStringVal(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, user);
+                LOGGER.info(String.format("Bait set found: %s", baitSet));
 
-                if (!isRequestCompleted(newestRequest)) {
-                    String baitSet = kapa.getStringVal(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, user);
-                    LOGGER.info(String.format("Bait set found: %s", baitSet));
+                if (oldToNewBaitSet.containsKey(baitSet)) {
+                    LOGGER.info(String.format("Saving old bait set for record: %s", kapa.getRecordId()));
 
-                    if (oldToNewBaitSet.containsKey(baitSet)) {
-                        LOGGER.info(String.format("Changing %s from: %s to: %s", VeloxConstants.AGILENT_CAPTURE_BAIT_SET, baitSet, oldToNewBaitSet.get(baitSet)));
-//                    kapa.setDataField(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, oldToNewBaitSet.get(baitSet), user);
+                    try {
+                        Files.write(kapaBackup, String.format("%s %s\n", kapa.getRecordId(), baitSet).getBytes(), StandardOpenOption.APPEND);
+                        LOGGER.info(String.format("Changing %s from: %s to: %s for record: %s", VeloxConstants.AGILENT_CAPTURE_BAIT_SET, baitSet, oldToNewBaitSet.get(baitSet), kapa.getRecordId()));
+                        kapa.setDataField(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, oldToNewBaitSet.get(baitSet), user);
+                    } catch (IOException e) {
+                        LOGGER.warn(String.format("Unable to save old bait set for record: %s. Omitting overwriting", kapa.getRecordId()), e);
                     }
-                } else {
-                    LOGGER.info(String.format("Request: %s is completed.", newestRequest.getStringVal(VeloxConstants.REQUEST_ID, user)));
                 }
+
             } catch (NoParentRequestException e) {
                 LOGGER.error(e.getMessage(), e);
             }
         }
-    }
-
-    private DataRecord getNewestRequest(DataRecord kapa) throws NotFound, RemoteException {
-        List<DataRecord> requests = kapa.getAncestorsOfType(VeloxConstants.REQUEST, user);
-
-        if(requests.size() == 0)
-            throw new NoParentRequestException(String.format("No request parents for kapa protocol: %d", kapa.getRecordId()));
-
-        DataRecord newestRequest = requests.get(0);
-
-        if(requests.size() > 0) {
-            LOGGER.info(String.format("Found %d parent request (s).", requests.size()));
-
-            long latestCreationDate = 0;
-
-            for (DataRecord request : requests) {
-                long dateCreated = request.getDateVal("DateCreated", user);
-                if(dateCreated > latestCreationDate) {
-                    latestCreationDate = dateCreated;
-                    newestRequest = request;
-                }
-            }
-        }
-
-        LOGGER.info(String.format(String.format("Newest parent requests: %s", newestRequest.getStringVal(VeloxConstants.REQUEST_ID, user))));
-        return newestRequest;
-    }
-
-    private boolean isRequestCompleted(DataRecord request) throws NotFound, RemoteException {
-        Object completedDate = request.getDataField("CompletedDate", user);
-
-        return completedDate != null;
     }
 
     private VeloxConnection tryToConnectToLims() {
