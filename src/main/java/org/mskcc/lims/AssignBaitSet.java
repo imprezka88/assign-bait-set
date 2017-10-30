@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 public class AssignBaitSet {
-    //    private static final String limsConnectionFilePath = "/Connection-dev.txt";
+//        private static final String limsConnectionFilePath = "/Connection-dev.txt";
     private static final String limsConnectionFilePath = "/Connection.txt";
     private static final Logger LOGGER = Logger.getLogger(AssignBaitSet.class);
 
