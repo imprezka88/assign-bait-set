@@ -6,6 +6,7 @@ import com.velox.sapioutils.client.standalone.VeloxConnection;
 import com.velox.sapioutils.client.standalone.VeloxStandalone;
 import com.velox.sapioutils.client.standalone.VeloxStandaloneException;
 import com.velox.sapioutils.client.standalone.VeloxTask;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.mskcc.util.VeloxConstants;
 
@@ -20,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 public class AssignBaitSet {
-    //    private static final String limsConnectionFilePath = "/Connection-dev.txt";
+//        private static final String limsConnectionFilePath = "/Connection-dev.txt";
     private static final String limsConnectionFilePath = "/Connection.txt";
     private static final Logger LOGGER = Logger.getLogger(AssignBaitSet.class);
 
@@ -69,38 +70,34 @@ public class AssignBaitSet {
         Files.deleteIfExists(kapa2Backup);
         Files.createFile(kapa2Backup);
 
-        List<DataRecord> kapas1 = dataRecordManager.queryDataRecords(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_1, null, user);
-        List<DataRecord> kapas2 = dataRecordManager.queryDataRecords(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_2, null, user);
-
         LOGGER.info(String.format("Assigning bait set for: %s", VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_1));
-        assignToKapa(kapas1, kapa1Backup);
+        assignToKapa(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_1, kapa1Backup);
 
         LOGGER.info(String.format("Assigning bait set for: %s", VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_2));
-        assignToKapa(kapas2, kapa2Backup);
+        assignToKapa(VeloxConstants.KAPA_AGILENT_CAPTURE_PROTOCOL_2, kapa2Backup);
     }
 
-    private void assignToKapa(List<DataRecord> kapas, Path kapaBackup) throws RemoteException, NotFound, IoError, InvalidValue {
-        for (DataRecord kapa : kapas) {
-            try {
-                String baitSet = kapa.getStringVal(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, user);
-                LOGGER.info(String.format("Bait set found: %s", baitSet));
+    private void assignToKapa(String protocol, Path kapaBackup) throws RemoteException, NotFound, IoError, InvalidValue {
+        for (Map.Entry<String, String> oldToNew : oldToNewBaitSet.entrySet()) {
+            String oldBaitSet = oldToNew.getKey();
+            List<DataRecord> kapas = dataRecordManager.queryDataRecords(protocol, VeloxConstants.AGILENT_CAPTURE_BAIT_SET + " = '" + oldBaitSet + "'", user);
 
-                if (oldToNewBaitSet.containsKey(baitSet)) {
-                    LOGGER.info(String.format("Saving old bait set for record: %s", kapa.getRecordId()));
-
-                    try {
-                        Files.write(kapaBackup, String.format("%s %s\n", kapa.getRecordId(), baitSet).getBytes(), StandardOpenOption.APPEND);
-                        LOGGER.info(String.format("Changing %s from: %s to: %s for record: %s", VeloxConstants.AGILENT_CAPTURE_BAIT_SET, baitSet, oldToNewBaitSet.get(baitSet), kapa.getRecordId()));
-                        kapa.setDataField(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, oldToNewBaitSet.get(baitSet), user);
-                    } catch (IOException e) {
-                        LOGGER.warn(String.format("Unable to save old bait set for record: %s. Omitting overwriting", kapa.getRecordId()), e);
-                    }
+            for (DataRecord kapa : kapas) {
+                try {
+                    backupOldBaitSet(kapaBackup, oldBaitSet, kapa);
+                    LOGGER.info(String.format("Overwriting %s from: %s to: %s for record: %s", VeloxConstants.AGILENT_CAPTURE_BAIT_SET, oldBaitSet, oldToNew.getValue(), kapa.getRecordId()));
+                        kapa.setDataField(VeloxConstants.AGILENT_CAPTURE_BAIT_SET, oldToNew.getValue(), user);
+                } catch (IOException e) {
+                    LOGGER.warn(String.format("Unable to save old bait set for record: %s. Omitting overwriting", kapa.getRecordId()), e);
                 }
-
-            } catch (NoParentRequestException e) {
-                LOGGER.error(e.getMessage(), e);
             }
         }
+    }
+
+    private void backupOldBaitSet(Path kapaBackup, String oldBaitSet, DataRecord kapa) throws IOException {
+        LOGGER.info(String.format("Saving old bait set for record: %s", kapa.getRecordId()));
+
+        Files.write(kapaBackup, String.format("%s %s\n", kapa.getRecordId(), oldBaitSet).getBytes(), StandardOpenOption.APPEND);
     }
 
     private VeloxConnection tryToConnectToLims() {
