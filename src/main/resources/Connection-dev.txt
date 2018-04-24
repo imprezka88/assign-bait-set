@@ -1,1 +1,1 @@
-Host: tango.mskcc.org, Port: 1088, User: devapi, Password: well1faceclock, GUID: 4bcdc7ab-0205-46fd-b90e-8aa3734f2545
+Host: , Port: , User: , Password: , GUID: 
